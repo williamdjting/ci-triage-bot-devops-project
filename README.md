@@ -47,6 +47,10 @@ uvicorn app.main:app --reload
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
+### 4. Use the APP
+- take the text from sample_jenkins.txt or sample_github_actions.txt and paste into the form field, the LLM will have a structured output
+- please note you must spend $5 on OpenRouter api key credit to use this app, set it up in your .env file
+
 ## API
 
 - **POST /api/analyze** — body: `{ "log_content": "...", "ci_provider": "github_actions" | "jenkins" | null }`. Returns the structured analysis (classification, failing_step, key_error_line, explanation, suggested_action).
