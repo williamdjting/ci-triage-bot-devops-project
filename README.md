@@ -24,7 +24,7 @@ A simple web app that triages CI failures using an LLM. Paste raw CI logs from *
 
 ```bash
 cd backend
-python -m venv .venv
+python -m venv .venv OR python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
