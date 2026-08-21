@@ -39,12 +39,12 @@ Edit .env and set OPENROUTER_API_KEY=sk-or-...
 ```
 
 ### 3. Run
+ensure virtual environment is set up and requirements.txt is installed
+run app from within virtual environment
 
 ```bash
-ensure virtual environment is set up and requirements.txt is installed
 cd backend
-run app from within virtual environment
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
