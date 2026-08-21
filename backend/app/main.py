@@ -36,6 +36,18 @@ async def root():
     return {"message": "CI Failure Triage Bot API. Open /static/index.html for the UI."}
 
 
+@app.get("/healthz")
+async def healthz():
+    """Liveness/readiness probe.
+
+    Deliberately does no I/O and does not touch the LLM provider: this answers
+    "is the process up and serving?", not "is OpenRouter reachable?". Wiring an
+    upstream dependency into a liveness probe makes Kubernetes restart healthy
+    pods during someone else's outage.
+    """
+    return {"status": "ok"}
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     """

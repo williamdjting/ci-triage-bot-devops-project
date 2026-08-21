@@ -1,0 +1,22 @@
+# Kustomize is built into kubectl (`kubectl apply -k k8s/`). ArgoCD auto-detects
+# this file in Stage 4 and uses it as the sync source, so the same directory
+# drives both the manual and GitOps paths.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ci-triage
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  # secret.example.yaml is deliberately NOT listed -- it is a template, and
+  # applying it would overwrite the real Secret with a placeholder key.
+
+# `commonLabels` is deprecated; `labels` with includeSelectors is the replacement.
+labels:
+  - pairs:
+      app.kubernetes.io/name: ci-triage-bot
+      app.kubernetes.io/part-of: ci-triage-bot
+    includeSelectors: false

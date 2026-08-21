@@ -1,0 +1,22 @@
+# Keep the build context to just the app source: everything below either bloats
+# the image, breaks layer caching, or must never be baked into an image at all.
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets must arrive at runtime, never in an image layer.
+.env
+*.env
+!.env.example
+
+.git/
+.gitignore
+.DS_Store
+*.md
+Dockerfile
+.dockerignore

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ci-triage-bot
+  namespace: ci-triage
+  labels:
+    app.kubernetes.io/name: ci-triage-bot
+spec:
+  # ClusterIP, not NodePort: the Ingress is the only front door. Keeping the
+  # Service internal means one place controls external access.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ci-triage-bot
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

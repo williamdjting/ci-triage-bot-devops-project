@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ci-triage-bot
+  namespace: ci-triage
+  labels:
+    app.kubernetes.io/name: ci-triage-bot
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ci-triage-bot
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never drop below `replicas` during a deploy
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ci-triage-bot
+    spec:
+      # Enforces what the Dockerfile already set up. If the image ever regressed
+      # to running as root, the pod would refuse to start rather than quietly
+      # becoming a privileged container.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: api
+          image: ci-triage-bot:local
+          # Must NOT be Always: this tag only exists inside the kind node, loaded
+          # via `kind load docker-image`. Always would send Kubernetes to Docker
+          # Hub looking for it and fail with ImagePullBackOff.
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8000
+
+          env:
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ci-triage-secrets
+                  key: OPENROUTER_API_KEY
+            - name: OPENROUTER_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: ci-triage-secrets
+                  key: OPENROUTER_MODEL
+                  optional: true
+
+          # Three probes, three different questions:
+          #  startup   -- "has it finished booting?" (gates the other two)
+          #  readiness -- "should it receive traffic?" (failing = pulled from Service)
+          #  liveness  -- "is it wedged?" (failing = container restarted)
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 15        # up to 30s to boot before giving up
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:      # what the scheduler reserves
+              cpu: 50m
+              memory: 128Mi
+            limits:        # hard ceiling; exceeding memory = OOMKill
+              cpu: 500m
+              memory: 256Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # readOnlyRootFilesystem blocks all writes, so anything that legitimately
+          # needs scratch space gets an explicit tmpfs mount.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}

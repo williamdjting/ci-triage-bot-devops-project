@@ -1,0 +1,27 @@
+# Local cluster definition. Stage 3 hands this exact shape to Terraform's kind
+# provider, so the cluster you get from `terraform apply` is identical to this one.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ci-triage
+
+nodes:
+  - role: control-plane
+    # ingress-nginx (Stage 3) only schedules onto nodes carrying this label.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    # Without these, a Service of type NodePort/LoadBalancer inside the kind
+    # container is unreachable from macOS. This is what makes localhost work.
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+
+  - role: worker
+  - role: worker

@@ -217,3 +217,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Real Kubernetes Secret manifests -- only *.example.yaml is committed
+k8s/secret.yaml
+k8s/*-secret.yaml

@@ -1,0 +1,33 @@
+# NOTE: inert until Stage 3 installs the ingress-nginx controller. An Ingress is
+# only a request -- without a controller watching for them, nothing acts on it.
+# Until then, reach the app with:
+#   kubectl -n ci-triage port-forward svc/ci-triage-bot 8000:80
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ci-triage-bot
+  namespace: ci-triage
+  labels:
+    app.kubernetes.io/name: ci-triage-bot
+  annotations:
+    # CI logs pasted into the form can be large; nginx defaults to a 1MB body.
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+    # LLM calls are slow. The 60s default would cut off a long analysis.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+spec:
+  ingressClassName: nginx
+  rules:
+    # kind maps host port 8080 -> node port 80, so this resolves at
+    # http://ci-triage.localtest.me:8080 once the controller is up.
+    # localtest.me is a public DNS name that always resolves to 127.0.0.1 --
+    # no /etc/hosts editing required.
+    - host: ci-triage.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ci-triage-bot
+                port:
+                  name: http
