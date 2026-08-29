@@ -14,3 +14,9 @@
 terraform.tfvars
 
 crash.log
+
+# Kubeconfig written by the kind provider as <cluster_name>-config, in the
+# module directory. It carries client-certificate-data and client-key-data --
+# cluster-admin credentials in plaintext. Never commit it.
+*-config
+!*.example-config
