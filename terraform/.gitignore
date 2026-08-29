@@ -1,0 +1,16 @@
+# Provider binaries -- re-downloaded by `terraform init`
+.terraform/
+
+# State. Contains every attribute of every managed resource IN PLAINTEXT,
+# including anything Terraform read from a Kubernetes Secret. Never commit it.
+# A real team puts this in a remote backend (S3+DynamoDB, GCS, Terraform Cloud)
+# so state is shared and locked; local state means one machine, one operator.
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Real variable values. Only *.example is committed.
+*.auto.tfvars
+terraform.tfvars
+
+crash.log
