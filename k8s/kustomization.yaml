@@ -29,7 +29,7 @@ resources:
 images:
   - name: ci-triage-bot
     newName: ghcr.io/williamdjting/ci-triage-bot
-    newTag: sha-0000000
+    newTag: sha-41976b7
 
 labels:
   - pairs:
