@@ -43,12 +43,20 @@ jobs:
         # has a real reason to roll. `:local` never did.
         run: echo "tag=sha-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
+      # Emulation for cross-building the arm64 image. GitHub runners are amd64;
+      # Apple Silicon kind nodes are arm64, so an amd64-only image fails to pull
+      # with "no match for platform in manifest".
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Build image (load locally for the smoke test)
         uses: docker/build-push-action@v6
         with:
           context: ./backend
+          # Single-platform on purpose: `load: true` cannot load a multi-arch
+          # manifest into the local daemon, and the smoke test only needs to run
+          # on the runner's native arch.
           load: true
           tags: ci-triage-bot:test
           cache-from: type=gha
@@ -88,6 +96,9 @@ jobs:
         with:
           context: ./backend
           push: true
+          # Must cover every architecture that will run this image. amd64 for
+          # cloud runners and Intel Macs, arm64 for Apple Silicon kind nodes.
+          platforms: linux/amd64,linux/arm64
           # `latest` is a convenience for humans only. Nothing deploys from it --
           # a mutable tag is exactly the trap this stage exists to remove.
           tags: |
