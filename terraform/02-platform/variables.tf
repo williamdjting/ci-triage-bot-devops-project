@@ -46,3 +46,15 @@ variable "sealed_secrets_chart_version" {
   type        = string
   default     = "2.19.3"
 }
+
+variable "git_repo_url" {
+  description = "Repository ArgoCD syncs from. Public, so no git credentials are needed."
+  type        = string
+  default     = "https://github.com/williamdjting/ci-triage-bot-devops-project.git"
+}
+
+variable "git_target_revision" {
+  description = "Branch or tag ArgoCD tracks."
+  type        = string
+  default     = "main"
+}

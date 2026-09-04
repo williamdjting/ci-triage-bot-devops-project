@@ -72,6 +72,37 @@ ArgoCD picks it up on its own. The plaintext is piped and never written to disk.
 cluster generates a new keypair, so `sealedsecret.yaml` must be re-sealed after
 a rebuild. The committed blob is not portable across clusters.
 
+## Migrating an existing hand-made Secret
+
+Sealed Secrets refuses to adopt a Secret it did not create:
+
+```
+failed update: Resource "ci-triage-secrets" already exists
+and is not managed by SealedSecret
+```
+
+This is a safety feature, not a bug — it prevents the controller clobbering a
+Secret owned by something else. Hit during the Stage 4 migration, because the
+Secret created imperatively in Stage 2 was still present.
+
+Fix: delete the hand-made Secret so the controller can create its own.
+
+```bash
+kubectl -n ci-triage delete secret ci-triage-secrets
+kubectl -n kube-system rollout restart deploy/sealed-secrets-controller
+```
+
+The restart matters. After deleting the Secret the controller kept reporting
+"already exists" from a stale cache, and annotating the SealedSecret did not
+clear it. A restart forces a full reconcile and the Secret reappears in ~2s.
+
+Confirm the Secret is now derived from git rather than from a human:
+
+```bash
+kubectl -n ci-triage get secret ci-triage-secrets \
+  -o jsonpath='{.metadata.ownerReferences[0].kind}'   # -> SealedSecret
+```
+
 ## Useful commands
 
 ```bash

@@ -145,6 +145,43 @@ resource "helm_release" "argocd" {
         hostname         = var.argocd_hostname
       }
     }
+
+    # THE HANDOFF. This is the only application-related object Terraform ever
+    # creates: a single pointer at argocd/applications/ in git. Everything the
+    # app needs is discovered from there by ArgoCD, and Terraform never touches
+    # k8s/ at all.
+    #
+    # Rendered through the Helm release rather than a `kubernetes_manifest`
+    # resource on purpose: an Application is a custom resource, and
+    # kubernetes_manifest validates against the API at PLAN time, which fails on
+    # a clean run because ArgoCD's CRDs do not exist yet. Helm installs the CRD
+    # and this object in one ordered operation.
+    extraObjects = [{
+      apiVersion = "argoproj.io/v1alpha1"
+      kind       = "Application"
+      metadata = {
+        name      = "root"
+        namespace = "argocd"
+      }
+      spec = {
+        project = "default"
+        source = {
+          repoURL        = var.git_repo_url
+          targetRevision = var.git_target_revision
+          path           = "argocd/applications"
+        }
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = "argocd"
+        }
+        syncPolicy = {
+          automated = {
+            prune    = true
+            selfHeal = true
+          }
+        }
+      }
+    }]
   })]
 
   # ArgoCD's ingress is meaningless until something serves it.
