@@ -117,9 +117,20 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d
 ```
 
-## What is NOT solved yet
+## How the image gets here
 
-The image. ArgoCD syncs *manifests* from git, not images from your laptop.
-`ci-triage-bot:local` is still built locally and side-loaded with `kind load`,
-and because that tag is mutable, `rollout restart` is still required after a
-rebuild. Stage 5 fixes this with immutable `sha-<commit>` tags in GHCR.
+ArgoCD syncs *manifests*, not images. The image arrives by a separate path:
+
+```
+push to backend/**
+  → CI builds multi-arch (amd64 + arm64), smoke tests it
+  → pushes ghcr.io/<owner>/ci-triage-bot:sha-<commit>
+  → rewrites newTag in k8s/kustomization.yaml and commits
+  → ArgoCD sees the commit and rolls it out
+```
+
+CI holds **no cluster credentials**. It pushes images and writes git; the
+cluster pulls. A compromised pipeline cannot reach the cluster directly.
+
+The tag is immutable, so the Deployment spec genuinely changes on every deploy
+and `rollout restart` is never needed. See `.github/workflows/ci.yml`.

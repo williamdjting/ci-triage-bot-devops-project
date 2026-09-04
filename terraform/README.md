@@ -18,13 +18,17 @@ mistake in one cannot destroy the other.
 | Layer | Owns | Provider |
 |---|---|---|
 | `01-cluster/` | The kind cluster: nodes, port mappings, K8s version | `tehcyx/kind` |
-| `02-platform/` | ingress-nginx, ArgoCD | `helm`, `kubernetes` |
+| `02-platform/` | ingress-nginx, ArgoCD, sealed-secrets, ArgoCD root Application | `helm`, `kubernetes` |
 
 ## What Terraform does NOT own
 
 **The application.** No Deployment, Service, or Ingress for the triage bot
-appears anywhere in here. Terraform stops at the platform boundary; ArgoCD
-takes over in Stage 4 and syncs `k8s/` from git.
+appears anywhere in here. Terraform stops at the platform boundary.
+
+The single exception is the ArgoCD **root Application** — one pointer at
+`argocd/applications/` in git, rendered through the ArgoCD chart's
+`extraObjects`. That is the entire handoff. After creating it, Terraform never
+touches an application manifest again.
 
 That split is the whole design: Terraform for things that change monthly and
 need credentials, ArgoCD for things that change every commit.
@@ -43,17 +47,22 @@ terraform init
 terraform apply
 ```
 
-Then load the image and deploy the app (still manual until Stage 4):
+There is no third step for the application. Layer 2 installs ArgoCD and points
+it at this repo, and ArgoCD deploys the app on its own, pulling the image from
+GHCR.
+
+The one thing that does not survive a rebuild is the sealed secret — a new
+cluster means a new keypair, so re-seal and push:
 
 ```bash
 cd ../..
-docker build -t ci-triage-bot:local ./backend
-kind load docker-image ci-triage-bot:local --name ci-triage
-kubectl apply -f k8s/namespace.yaml
 kubectl -n ci-triage create secret generic ci-triage-secrets \
-  --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -k k8s/
-kubectl -n ci-triage rollout restart deploy/ci-triage-bot
+  --from-env-file=.env --dry-run=client -o yaml \
+  | kubeseal --format yaml \
+      --controller-name sealed-secrets-controller \
+      --controller-namespace kube-system \
+  > k8s/sealedsecret.yaml
+git commit -am "chore: re-seal for new cluster" && git push
 ```
 
 - App: <http://ci-triage.localtest.me:8080>
