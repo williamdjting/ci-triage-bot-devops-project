@@ -34,9 +34,14 @@ spec:
       containers:
         - name: api
           image: ci-triage-bot:local
-          # Must NOT be Always: this tag only exists inside the kind node, loaded
-          # via `kind load docker-image`. Always would send Kubernetes to Docker
-          # Hub looking for it and fail with ImagePullBackOff.
+          # The real image and tag come from kustomization.yaml, which points at
+          # ghcr.io/<owner>/ci-triage-bot:sha-<commit>. The value here is only a
+          # match key for that override, plus a sane default for a bare
+          # `kubectl apply -f deployment.yaml`.
+          #
+          # IfNotPresent is correct now for a different reason than before: tags
+          # are immutable, so a tag already on the node is guaranteed to be the
+          # right image and re-pulling it is pure waste.
           imagePullPolicy: IfNotPresent
 
           ports:

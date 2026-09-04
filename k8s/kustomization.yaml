@@ -19,6 +19,18 @@ resources:
   # applying it would overwrite the real Secret with a placeholder key.
 
 # `commonLabels` is deprecated; `labels` with includeSelectors is the replacement.
+# The image, in ONE place. CI rewrites `newTag` on every backend commit and
+# commits the change; ArgoCD sees the new commit and rolls it out.
+#
+# `newTag` is an immutable sha-<commit> tag, which is the entire point of
+# Stage 5: the Deployment spec genuinely changes on every deploy, so there is
+# no `rollout restart` to remember and no way to be wrong about what is
+# running. The placeholder below is replaced by the first CI run.
+images:
+  - name: ci-triage-bot
+    newName: ghcr.io/williamdjting/ci-triage-bot
+    newTag: sha-0000000
+
 labels:
   - pairs:
       app.kubernetes.io/name: ci-triage-bot
