@@ -3,7 +3,7 @@
 Everything built so far for the CI Failure Triage Bot: what exists, why it is
 shaped this way, and what comes next.
 
-**Status:** Stages 1–3 complete and running. Stages 4–5 not started.
+**Status:** Stages 1–4 complete and running. Stage 5 not started.
 
 ---
 
@@ -34,7 +34,7 @@ point: nothing about the app fights the infrastructure work.
 | 1 | Docker — image + local run | Done |
 | 2 | Kubernetes — manifests on kind | Done |
 | 3 | Terraform — cluster + platform | Done |
-| 4 | ArgoCD — GitOps sync | **Not started** |
+| 4 | ArgoCD — GitOps sync + sealed secrets | Done |
 | 5 | CI — build, push, auto-deploy | **Not started** |
 
 Live URLs (while the cluster is up):
@@ -53,15 +53,17 @@ no `/etc/hosts` editing is needed.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  STAGE 4 (not built)   ArgoCD syncs k8s/ from git            │
-│                        ArgoCD is INSTALLED but watching      │
-│                        nothing — it is idle                  │
+│  STAGE 4   ArgoCD, running continuously inside the cluster   │
+│            root Application ──▶ argocd/applications/         │
+│                             ──▶ ci-triage-bot ──▶ k8s/       │
 ├──────────────────────────────────────────────────────────────┤
-│  STAGE 2   k8s/     Deployment · Service · Ingress · Secret  │
-│            applied by hand with `kubectl apply -k`           │
+│  STAGE 2   k8s/   Deployment · Service · Ingress ·           │
+│                   SealedSecret — now synced by ArgoCD,       │
+│                   no longer applied by hand                  │
 ├──────────────────────────────────────────────────────────────┤
-│  STAGE 3   terraform/02-platform   ingress-nginx, ArgoCD     │
-│            terraform/01-cluster    kind cluster, 3 nodes     │
+│  STAGE 3   terraform/02-platform  ingress-nginx, ArgoCD,     │
+│                                   sealed-secrets             │
+│            terraform/01-cluster   kind cluster, 3 nodes      │
 ├──────────────────────────────────────────────────────────────┤
 │  STAGE 1   backend/Dockerfile → ci-triage-bot:local          │
 └──────────────────────────────────────────────────────────────┘
@@ -232,7 +234,58 @@ anywhere in `terraform/`. Terraform stops at the platform boundary.
 
 ---
 
-## 7. The ownership boundary
+## 7. Stage 4 — ArgoCD
+
+**Question it answers: how does the cluster stay in sync with git, without a human?**
+
+**Files:** `argocd/applications/ci-triage-bot.yaml`, `argocd/README.md`,
+`k8s/sealedsecret.yaml`
+
+### App-of-apps
+
+Terraform creates exactly one application-related object — a root `Application`
+pointing at `argocd/applications/` — and stops. That directory holds the real
+Applications, so adding a second service later is one committed file, not a
+Terraform change.
+
+```
+Terraform ──creates──▶ root Application
+                          └─watches─▶ argocd/applications/
+                                         └─▶ ci-triage-bot
+                                                └─watches─▶ k8s/
+```
+
+The root Application is rendered through the ArgoCD Helm chart's `extraObjects`
+rather than a `kubernetes_manifest` resource. An `Application` is a custom
+resource, and `kubernetes_manifest` validates against the API at *plan* time,
+which fails on a clean run because ArgoCD's CRDs do not exist yet. Helm installs
+the CRD and the object in one ordered operation — the same ordering problem that
+split the Terraform into two layers.
+
+### Self-healing
+
+Both Applications run `automated` with `prune: true` and `selfHeal: true`.
+Verified by deleting the Deployment by hand: **ArgoCD restored it in ~10
+seconds** with no human action. Git, not the cluster, is the source of truth.
+
+`prune` matters as much as `selfHeal` — without it, git becomes append-only:
+you can add resources but removing them from the repo never removes them from
+the cluster.
+
+### Sealed secrets
+
+`k8s/sealedsecret.yaml` holds the OpenRouter key encrypted with the Sealed
+Secrets controller's public key. Safe to commit to a public repo — only the
+in-cluster private key can open it, and that key never leaves the cluster. The
+controller unseals it into a normal Secret named `ci-triage-secrets`, which
+`deployment.yaml` reads unchanged.
+
+This is what makes the cluster reproducible from git alone, and it exists
+because ArgoCD can only sync what lives in the repo.
+
+---
+
+## 8. The ownership boundary
 
 This is the core design idea, and it falls out of one distinction:
 
@@ -258,7 +311,7 @@ from Stage 4 onward.
 
 ---
 
-## 8. Running it from scratch
+## 9. Running it from scratch
 
 Requires: Docker Desktop running, `terraform`, `kubectl`, `kind`, and a `.env`
 containing `OPENROUTER_API_KEY`.
@@ -270,16 +323,25 @@ cd terraform/01-cluster && terraform init && terraform apply
 # Layer 2 — the platform
 cd ../02-platform && terraform init && terraform apply
 
-# The app (manual until Stage 4)
+# The app -- ArgoCD deploys it from git on its own. Only the IMAGE is manual,
+# because ArgoCD syncs manifests, not images from your laptop. (Stage 5.)
 cd ../..
 docker build -t ci-triage-bot:local ./backend
 kind load docker-image ci-triage-bot:local --name ci-triage
-kubectl apply -f k8s/namespace.yaml
+kubectl -n ci-triage rollout restart deploy/ci-triage-bot   # mutable tag
+```
+
+Re-seal the secret after a cluster rebuild — a new cluster means a new keypair,
+so the committed blob cannot be decrypted:
+
+```bash
 kubectl -n ci-triage create secret generic ci-triage-secrets \
-  --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -k k8s/
-kubectl -n ci-triage rollout restart deploy/ci-triage-bot
-kubectl -n ci-triage rollout status deploy/ci-triage-bot
+  --from-env-file=.env --dry-run=client -o yaml \
+  | kubeseal --format yaml \
+      --controller-name sealed-secrets-controller \
+      --controller-namespace kube-system \
+  > k8s/sealedsecret.yaml
+git commit -am "chore: re-seal for new cluster" && git push
 ```
 
 Teardown (reverse order):
@@ -298,7 +360,7 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
 
 ---
 
-## 9. Gotchas — all of these actually happened
+## 10. Gotchas — all of these actually happened
 
 **`rollout status` can report success on a stale deploy.**
 Observed 2026-08-29: pods ran a 7-day-old image while every command exited 0 and
@@ -330,6 +392,26 @@ repo. The `.gitignore` had been written before any apply, so it covered
 `*.tfstate` but not a file only the provider creates. You cannot fully gitignore
 infrastructure you have not run.
 
+**Sealed Secrets will not adopt a Secret it did not create.**
+Migrating from the imperative Stage 2 Secret produced
+`failed update: Resource "ci-triage-secrets" already exists and is not managed
+by SealedSecret`. That is a safety feature, not a bug. Deleting the hand-made
+Secret is the fix — but the controller then kept reporting "already exists"
+from a stale cache, and annotating the SealedSecret did not clear it. A
+controller restart forces a full reconcile and the Secret reappears in ~2s.
+
+**Helm silently ignores unknown values keys.**
+`fullnameSelector` is not a real key in the sealed-secrets chart. There was no
+error — the controller simply installed under its default name, which is not
+where `kubeseal` looks. The correct key is `fullnameOverride`. Verify a key
+exists in the chart's `values.yaml` before relying on it.
+
+**Helm chart repositories move.** The sealed-secrets chart migrated from the
+`bitnami-labs` org to `bitnami`; `bitnami-labs.github.io/sealed-secrets` now
+returns 404. Bitnami's own catalog carries a much older version (app 0.31.0)
+than the current chart (0.39.1), so picking the wrong source silently pins you
+to a stale controller.
+
 **`imagePullPolicy` must not be `Always`.**
 `ci-triage-bot:local` exists only inside the kind nodes. `Always` sends
 Kubernetes to Docker Hub and yields `ImagePullBackOff`.
@@ -347,7 +429,7 @@ needs an explicit volume. `/tmp` has an emptyDir for this.
 
 ---
 
-## 10. Known limitations
+## 11. Known limitations
 
 - **`kind/cluster.yaml` is duplicated** in `terraform/01-cluster/main.tf`. The
   kind provider takes HCL, not a file path. Terraform is the source of truth;
@@ -355,39 +437,17 @@ needs an explicit volume. `/tmp` has an emptyDir for this.
 - **Terraform state is local and gitignored.** A team would use a remote backend
   (S3 + DynamoDB, GCS, Terraform Cloud) for sharing and locking.
 - **`:local` is a mutable tag** — the root cause of the stale-deploy trap.
-- **The Secret is created imperatively**, so it is not reproducible from git
-  alone. Stage 4 must solve this properly.
-- **ArgoCD is installed but idle.** It watches nothing yet.
 - **No CI.** Nothing builds or tests the image automatically.
+- **Sealed values are bound to the controller's keypair.** Destroying the
+  cluster generates a new keypair, so `k8s/sealedsecret.yaml` must be re-sealed
+  after a rebuild. The committed blob is not portable across clusters.
 - **Local only.** No cloud provider, no TLS, no real DNS.
 
 ---
 
-## 11. Next steps
+## 12. Next steps
 
-### Stage 4 — ArgoCD
-
-Point ArgoCD at `k8s/` in this repo with a root `Application`, using the
-app-of-apps pattern so adding a service later means committing one file rather
-than editing Terraform. Terraform hands ArgoCD exactly one pointer and never
-touches app manifests again.
-
-The moment it clicks: `kubectl delete` the Deployment and watch ArgoCD rebuild
-it from git, unprompted.
-
-Two problems Stage 4 must solve:
-
-1. **Secrets in git.** ArgoCD can only sync what is in the repo, and a raw
-   Secret must never be committed. Needs Sealed Secrets or External Secrets.
-2. **Images.** ArgoCD syncs manifests from git, not images from your laptop.
-   `ci-triage-bot:local` built locally and side-loaded with `kind load` cannot
-   be managed this way.
-
-**Open decision — required before Stage 4:** make the GitHub repo public so
-GHCR is free, or keep it private and configure an image pull secret. Either
-works; it changes a few lines.
-
-### Stage 5 — CI
+### Stage 5 — CI (the only stage left)
 
 GitHub Actions builds the image, pushes to GHCR tagged `sha-<commit>`, and
 commits that tag into the manifest. ArgoCD sees the git change and syncs.
