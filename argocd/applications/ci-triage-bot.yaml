@@ -1,0 +1,40 @@
+# The application, as ArgoCD sees it. Committed to git, applied by the root
+# Application -- not by Terraform and not by you.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ci-triage-bot
+  namespace: argocd
+  finalizers:
+    # Makes deleting this Application also delete what it deployed. Without it,
+    # removing the Application orphans the running pods.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/williamdjting/ci-triage-bot-devops-project.git
+    targetRevision: main
+    # ArgoCD auto-detects kustomization.yaml here and renders through Kustomize.
+    path: k8s
+
+  destination:
+    # The cluster ArgoCD itself runs in.
+    server: https://kubernetes.default.svc
+    namespace: ci-triage
+
+  syncPolicy:
+    automated:
+      # Delete resources removed from git. Without this, git becomes
+      # append-only: you can add things but never actually remove them.
+      prune: true
+      # Revert manual kubectl changes. This is the self-healing behaviour --
+      # the reason ArgoCD catches drift that Terraform cannot see between runs.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2

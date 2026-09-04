@@ -64,6 +64,48 @@ resource "helm_release" "ingress_nginx" {
   })]
 }
 
+# --- Sealed Secrets --------------------------------------------------------
+# Makes the cluster reproducible from git alone.
+#
+# ArgoCD can only sync what lives in the repo, but a raw Kubernetes Secret must
+# never be committed -- it is base64, which is encoding, not encryption. This
+# controller holds an RSA keypair: `kubeseal` encrypts with the public key, and
+# only this controller (with the private key, which never leaves the cluster)
+# can decrypt. The ENCRYPTED blob is safe to commit to a public repo.
+#
+# The controller unseals a SealedSecret into a normal Secret in the same
+# namespace, so k8s/deployment.yaml keeps reading `ci-triage-secrets` unchanged.
+#
+# NOTE: the chart moved from the bitnami-labs org to bitnami; the old
+# bitnami-labs.github.io index now 404s.
+resource "helm_release" "sealed_secrets" {
+  name       = "sealed-secrets"
+  repository = "https://bitnami.github.io/sealed-secrets"
+  chart      = "sealed-secrets"
+  version    = var.sealed_secrets_chart_version
+
+  namespace        = "kube-system"
+  create_namespace = false
+
+  timeout = 300
+  wait    = true
+
+  values = [yamlencode({
+    # kubeseal looks for a controller called "sealed-secrets-controller" in
+    # kube-system by default. Renaming the release to match means `kubeseal`
+    # works with no extra flags.
+    #
+    # The key is `fullnameOverride`. Helm SILENTLY IGNORES unknown values keys,
+    # so a typo here produces no error -- just a controller under the default
+    # name and a confusing "cannot find controller" from kubeseal later.
+    fullnameOverride = "sealed-secrets-controller"
+
+    resources = {
+      requests = { cpu = "20m", memory = "64Mi" }
+    }
+  })]
+}
+
 # --- ArgoCD ----------------------------------------------------------------
 # The bootstrap paradox: ArgoCD cannot install itself. Terraform does it once,
 # here, and then control inverts -- from Stage 4 on, the cluster pulls its own

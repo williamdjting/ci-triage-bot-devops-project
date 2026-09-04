@@ -11,6 +11,10 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  # The ENCRYPTED secret. Safe to commit: only the in-cluster controller holds
+  # the private key. The controller unseals it into a normal Secret named
+  # ci-triage-secrets, which deployment.yaml reads unchanged.
+  - sealedsecret.yaml
   # secret.example.yaml is deliberately NOT listed -- it is a template, and
   # applying it would overwrite the real Secret with a placeholder key.
 

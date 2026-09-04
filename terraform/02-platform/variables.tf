@@ -36,3 +36,13 @@ variable "install_argocd" {
   type        = bool
   default     = true
 }
+
+variable "sealed_secrets_chart_version" {
+  description = <<-EOT
+    sealed-secrets Helm chart version (chart 2.19.3 = controller v0.39.1).
+    Must match the `kubeseal` CLI version used to seal secrets -- a client
+    newer than the controller can produce a blob the controller cannot open.
+  EOT
+  type        = string
+  default     = "2.19.3"
+}
